@@ -1,5 +1,4 @@
 import base64
-import posixpath
 import re
 from urllib.parse import urlsplit
 
@@ -27,6 +26,21 @@ PATH_TOKEN_RE = re.compile(r"[\w./~${}\-]*service-account\.json")
 BASE64_RE = re.compile(r"(?:[A-Za-z0-9+/]{4}){4,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 
 
+def resolve_components(path: str) -> str:
+    """Explicit stack-based path resolution: no POSIX double-slash quirks,
+    '..' pops the stack (never escapes above root), '.' and '' are skipped."""
+    stack = []
+    for part in path.split("/"):
+        if part == "" or part == ".":
+            continue
+        elif part == "..":
+            if stack:
+                stack.pop()
+        else:
+            stack.append(part)
+    return "/" + "/".join(stack)
+
+
 def expand_and_normalize(token: str, cwd: str) -> str:
     t = token.strip()
     t = t.replace("${HOME}", HOME).replace("$HOME", HOME)
@@ -34,9 +48,11 @@ def expand_and_normalize(token: str, cwd: str) -> str:
         t = HOME
     elif t.startswith("~/"):
         t = HOME + t[1:]
-    if not t.startswith("/"):
-        t = posixpath.join(cwd, t)
-    return posixpath.normpath(t)
+    if t.startswith("/"):
+        full = t
+    else:
+        full = cwd.rstrip("/") + "/" + t
+    return resolve_components(full)
 
 
 def references_secret_file(text: str, cwd: str) -> bool:
